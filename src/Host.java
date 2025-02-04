@@ -10,9 +10,10 @@ public class Host {
     private DatagramSocket socket;
     public Scanner console = new Scanner(System.in);
 
-    public Host(String id, String configPath) {
+    public Host(String id) {
         this.id = id;
         this.macAddress = id;
+        String configPath = "config.properties";
         setupConfig(configPath);
     }
 
@@ -35,7 +36,7 @@ public class Host {
         try {
             while (true) {
                 System.out.println("Enter Destination MAC (A, B, C, or D)");
-                String destMac = console.nextLine().strip();
+                String destMac = console.nextLine().strip().toUpperCase();
                 if (destMac.length() > 1 || !destMac.matches("[ABCD]")) {
                     System.out.println("Invalid input. Try again.");
                     continue;
@@ -81,11 +82,11 @@ public class Host {
     }
 
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.err.println("Usage: java Host <HostID> <ConfigFilePath>");
+        if (args.length < 1) {
+            System.err.println("Usage: java Host <HostID>");
             System.exit(1);
         }
-        Host host = new Host(args[0], args[1]);
+        Host host = new Host(args[0].toUpperCase());
         host.start();
     }
 }

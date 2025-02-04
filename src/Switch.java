@@ -9,8 +9,9 @@ public class Switch {
     private Map<String, String> forwardingTable = new ConcurrentHashMap<>();
     private DatagramSocket socket;
 
-    public Switch(String id, String configPath) {
+    public Switch(String id) {
         this.id = id;
+        String configPath = "config.properties";
         setupConfig(configPath);
     }
 
@@ -98,11 +99,11 @@ public class Switch {
     }
 
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.err.println("Usage: java Switch <SwitchID> <ConfigFilePath>");
+        if (args.length < 1) {
+            System.err.println("Usage: java Switch <SwitchID>");
             System.exit(1);
         }
-        Switch sw = new Switch(args[0], args[1]);
+        Switch sw = new Switch(args[0].toUpperCase());
         sw.start();
     }
 }
