@@ -6,6 +6,7 @@ public class Host {
     private String id;
     private String macAddress;
     private String switchIp;
+    private String virtualIP;
     private int switchPort;
     private DatagramSocket socket;
     public Scanner console = new Scanner(System.in);
