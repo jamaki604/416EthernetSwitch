@@ -92,8 +92,6 @@ public class Router {
 
         String nextHop = routingTable.get(destNetwork);
 
-
-
         if (nextHop.equals("direct")) {
             System.out.println("Destination is directly connected: " + destIp);
             String destSwitch = properties.getProperty("device." + destIp.split("\\.")[1] + ".connectedTo");
