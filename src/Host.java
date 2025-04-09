@@ -3,8 +3,8 @@ import java.util.Properties;
 import java.util.Scanner;
 
 public class Host {
-    private String id;
-    private String macAddress;
+    private final String id;
+    private final String macAddress;
     private String switchIp;
     private String virtualIP;
     private int switchPort;
@@ -57,7 +57,7 @@ public class Host {
         }else {
             destMac = gateway.split("\\.")[1];
         }
-        String frame = macAddress + "," + destMac + "," + virtualIP + "," + destIp + "," + message;
+        String frame = "1," + macAddress + "," + destMac + "," + virtualIP + "," + destIp + "," + message; // Added flag "1"
         byte[] data = frame.getBytes();
         DatagramPacket packet = new DatagramPacket(data, data.length, InetAddress.getByName(switchIp), switchPort);
         socket.send(packet);
@@ -73,15 +73,17 @@ public class Host {
             while (true) {
                 socket.receive(packet);
                 String frame = new String(packet.getData(), 0, packet.getLength());
-                String[] parts = frame.split(",", 5);
-                String sourceMac = parts[0];
-                String destMac = parts[1];
-                String sourceIP = parts[2];
-                String destIP = parts[3];
-                String payload = parts[4];
+                String[] parts = frame.split(",", 6); // Updated to split into 6 parts due to flag
+                String flag = parts[0];
 
-                if (destMac.equals(macAddress)) {
-                    System.out.println("Message received from " + sourceMac + ": " + payload);
+                if (flag.equals("1")) { // Only process user messages
+                    String sourceMac = parts[1];
+                    String destMac = parts[2];
+                    String payload = parts[5];
+
+                    if (destMac.equals(macAddress)) {
+                        System.out.println("Message received from " + sourceMac + ": " + payload);
+                    }
                 }
             }
         } catch (Exception e) {

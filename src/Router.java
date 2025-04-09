@@ -9,14 +9,14 @@ import java.util.Properties;
 public class Router {
     String id;
     int port;
-    private Map<String, String> virtualPorts = new HashMap<>();
-
-    private Map<String, String> routingTable = new HashMap<>();
+    private final Map<String, String> virtualPorts = new HashMap<>();
+    private final DistanceVector distanceVector; // Replaced routingTable with DistanceVector
     private DatagramSocket socket;
     private Properties properties;
 
-    public Router(String id){
+    public Router(String id) {
         this.id = id;
+        this.distanceVector = new DistanceVector(); // Initialize DistanceVector
         String configPath = "config.properties";
         setupConfig(configPath);
     }
@@ -37,25 +37,50 @@ public class Router {
             String neighborPort = properties.getProperty("device." + neighbor + ".port");
             virtualPorts.put(neighbor, neighborIp + ":" + neighborPort);
         }
+
+        // Initialize Distance Vector with directly connected subnets
+        Map<String, String> directlyConnectedSubnets = new HashMap<>();
         String routing = properties.getProperty("device." + id + ".routing");
-        for(String route : routing.split(",")){
+        for (String route : routing.split(",")) {
             String[] parts = route.split(":");
-            routingTable.put(parts[0], parts[1]);
+            String subnet = parts[0];
+            String nextHop = parts[1];
+            if (nextHop.equals("direct")) {
+                // For directly connected subnets, the next-hop is the neighbor device
+                for (String neighbor : connectedTo.split(",")) {
+                    String neighborSubnet = properties.getProperty("device." + neighbor + ".subnet");
+                    if (neighborSubnet != null && neighborSubnet.equals(subnet)) {
+                        directlyConnectedSubnets.put(subnet, neighbor);
+                        break;
+                    }
+                }
+            } else {
+                directlyConnectedSubnets.put(subnet, nextHop);
+            }
         }
+        // Add subnets of directly connected switches that aren't in routing
+        for (String neighbor : connectedTo.split(",")) {
+            String neighborSubnet = properties.getProperty("device." + neighbor + ".subnet");
+            if (neighborSubnet != null && !directlyConnectedSubnets.containsKey(neighborSubnet)) {
+                directlyConnectedSubnets.put(neighborSubnet, neighbor);
+            }
+        }
+        distanceVector.initialize(directlyConnectedSubnets);
 
-        // Table Prints for testing
-        System.out.println("Routing Table for Router " + id + ":");
-        routingTable.forEach((key, value) -> System.out.println("  " + key + " -> " + value));
-        System.out.println("--------------------------------------------");
-
-
+        // Table Prints for testing (kept as-is for virtualPorts, added for DistanceVector)
         System.out.println("Virtual Ports Table for Router " + id + ":");
         virtualPorts.forEach((key, value) -> System.out.println("  " + key + " -> " + value));
         System.out.println("--------------------------------------------");
+
+        // Print initial Distance Vector
+        distanceVector.printDistanceVector(id);
+
+        // Send initial Distance Vector to all neighbors
+        sendDistanceVectorToNeighbors();
     }
 
     public void start() {
-        System.out.println("Switch " + id + " listening on port " + port);
+        System.out.println("Router " + id + " listening on port " + port); // Fixed typo: "Switch" to "Router"
         try {
             byte[] buffer = new byte[1024];
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
@@ -64,7 +89,6 @@ public class Router {
                 socket.receive(packet);
                 String frame = new String(packet.getData(), 0, packet.getLength());
                 handleFrame(frame);
-
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -74,36 +98,70 @@ public class Router {
     private void handleFrame(String frame) {
         System.out.println("Router " + id + " received frame: " + frame);
 
-        String[] parts = frame.split(",", 5);
+        // Split the frame to check the flag
+        String[] parts = frame.split(",", 2);
+        String flag = parts[0];
 
-        String srcMac = parts[0];
-        String destMac = parts[1];
-        String srcIp = parts[2];
-        String destIp = parts[3];
-        String payload = parts[4];
+        if (flag.equals("0")) {
+            // This is a Distance Vector update
+            handleDistanceVectorUpdate(parts[1]);
+        } else if (flag.equals("1")) {
+            // This is a user packet
+            String[] userParts = parts[1].split(",", 5);
+            String srcMac = userParts[0];
+            String srcIp = userParts[2];
+            String destIp = userParts[3];
+            String payload = userParts[4];
 
-        //don't do anything if everything is in the same subnet (switches forwarding table will get messed up)
-        if (srcIp.split("\\.")[0].equals(destIp.split("\\.")[0])){
-            System.out.println("Same Subnet.... I don't care");
-            return;
-        }
+            // Don't do anything if everything is in the same subnet (switches forwarding table will get messed up)
+            if (srcIp.split("\\.")[0].equals(destIp.split("\\.")[0])) {
+                System.out.println("Same Subnet.... I don't care");
+                return;
+            }
 
-        String destNetwork = destIp.split("\\.")[0];
+            String destNetwork = destIp.split("\\.")[0];
+            String nextHop = distanceVector.getNextHop(destNetwork);
 
-        String nextHop = routingTable.get(destNetwork);
+            if (nextHop == null) {
+                System.out.println("Router " + id + ": No route to destination subnet " + destNetwork);
+                return;
+            }
 
-        if (nextHop.equals("direct")) {
-            System.out.println("Destination is directly connected: " + destIp);
-            String destSwitch = properties.getProperty("device." + destIp.split("\\.")[1] + ".connectedTo");
-            sendFrame(srcMac, destIp.split("\\.")[1], srcIp, destIp, payload, destSwitch);
+            if (properties.getProperty("device." + nextHop + ".subnet") != null &&
+                    properties.getProperty("device." + nextHop + ".subnet").equals(destNetwork)) {
+                System.out.println("Destination is directly connected: " + destIp);
+                String destSwitch = properties.getProperty("device." + destIp.split("\\.")[1] + ".connectedTo");
+                sendFrame("1", srcMac, destIp.split("\\.")[1], srcIp, destIp, payload, destSwitch);
+            } else {
+                System.out.println("Forwarding to Next Router: " + nextHop);
+                sendFrame("1", srcMac, nextHop, srcIp, destIp, payload, nextHop);
+            }
         } else {
-            System.out.println("Forwarding to Next Router: " + nextHop);
-            sendFrame(srcMac, nextHop, srcIp, destIp, payload, nextHop);
+            System.out.println("Router " + id + ": Unknown packet type with flag " + flag);
         }
     }
-    private void sendFrame(String srcMac, String destMac, String srcIp, String destIp, String payload, String nextHop) {
+
+    private void handleDistanceVectorUpdate(String dvData) {
+        // Parse the sender and the DV
+        String[] dvParts = dvData.split(",", 2);
+        String sender = dvParts[0];
+        String dvString = dvParts.length > 1 ? dvParts[1] : "";
+        DistanceVector receivedDV = DistanceVector.deserialize(dvString);
+
+        System.out.println("Router " + id + " received DV from " + sender);
+
+        // Update the Distance Vector using Bellman-Ford
+        boolean updated = distanceVector.updateWithBellmanFord(sender, receivedDV);
+        if (updated) {
+            System.out.println("Router " + id + " updated its Distance Vector");
+            distanceVector.printDistanceVector(id);
+            sendDistanceVectorToNeighbors();
+        }
+    }
+
+    private void sendFrame(String flag, String srcMac, String destMac, String srcIp, String destIp, String payload, String nextHop) {
         try {
-            String frame = srcMac + "," + destMac + "," + srcIp + "," + destIp + "," + payload;
+            String frame = flag + "," + srcMac + "," + destMac + "," + srcIp + "," + destIp + "," + payload;
 
             String nextHopAddress = virtualPorts.get(nextHop);
 
@@ -120,13 +178,21 @@ public class Router {
             e.printStackTrace();
         }
     }
+
+    private void sendDistanceVectorToNeighbors() {
+        String dvString = distanceVector.serialize();
+        for (String neighbor : virtualPorts.keySet()) {
+            sendFrame("0", id, neighbor, "", "", dvString, neighbor);
+        }
+        System.out.println("Router " + id + " sent Distance Vector to neighbors: " + dvString);
+    }
+
     public static void main(String[] args) {
         if (args.length < 1) {
-            System.err.println("Usage: java Host <HostID>");
+            System.err.println("Usage: java Router <RouterID>"); // Fixed typo: "java Host" to "java Router"
             System.exit(1);
         }
         Router router = new Router(args[0]);
         router.start();
     }
 }
-

@@ -3,10 +3,10 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Switch {
-    private String id;
+    private final String id;
     private int port;
-    private Map<String, String> neighbors = new HashMap<>();
-    private Map<String, String> forwardingTable = new ConcurrentHashMap<>();
+    private final Map<String, String> neighbors = new HashMap<>();
+    private final Map<String, String> forwardingTable = new ConcurrentHashMap<>();
     private DatagramSocket socket;
 
     public Switch(String id) {
@@ -54,12 +54,15 @@ public class Switch {
     private void handleFrame(String frame, InetAddress senderAddress, int senderPort) {
         System.out.println("Switch " + id + " received frame: " + frame);
 
-        String[] parts = frame.split(",", 3);
-        String sourceMac = parts[0];
-        String destMac = parts[1];
+        String[] parts = frame.split(",", 4);
+        String sourceMac = parts[1];
+        String destMac = parts[2];
 
         String sender = senderAddress.getHostAddress() + ":" + senderPort;
-        forwardingTable.put(sourceMac, sender);
+        // Only update the forwarding table if the sourceMac is a directly connected neighbor
+        if (neighbors.containsKey(sourceMac)) {
+            forwardingTable.put(sourceMac, sender);
+        }
 
         if (forwardingTable.containsKey(destMac)) {
             String forwardTo = forwardingTable.get(destMac);
